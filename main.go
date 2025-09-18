@@ -557,5 +557,5 @@ func main() {
 	initPlayerBoard(roomId, "B")
 
 	fmt.Println("Server start :8080")
-	router.Run(":8080")
+	router.Run("0.0.0.0:8080")
 }
