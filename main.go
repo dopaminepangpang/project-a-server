@@ -505,6 +505,10 @@ func initPlayerBoard(roomId, playerId string) {
 	rdb.Set(ctx, fmt.Sprintf("dopamin:%s", playerId), 1000, 0)
 }
 
+func healthHandler(c *gin.Context) {
+	c.JSON(200, "OK")
+}
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
 	router := gin.Default()
@@ -550,6 +554,7 @@ func main() {
 		c.JSON(200, resp)
 	})
 	router.GET("/ws", wsHandler)
+	router.GET("/health", healthHandler)
 
 	// 예제 방 및 플레이어 초기화
 	roomId := "room1"
