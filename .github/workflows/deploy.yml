@@ -1,0 +1,28 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Deploy to Server
+        run: |
+          sshpass -p '${{ secrets.SERVER_PASSWORD }}' ssh -o StrictHostKeyChecking=no -p ${{ secrets.SERVER_PORT }} ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'EOF'
+            cd ~/project-a-server || exit
+            git pull origin master
+            docker stop project-a-server || true
+            docker rm project-a-server || true
+            docker build -t project-a-server:latest .
+            docker run -d --name project-a-server -p 80:8080 project-a-server:latest
+          EOF
