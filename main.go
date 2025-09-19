@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/redis/go-redis/v9"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -16,7 +18,15 @@ import (
 )
 
 var ctx = context.Background()
-var rdb = redis.NewClient(&redis.Options{Addr: "172.17.0.2:6379"})
+var rdb = redis.NewClient(&redis.Options{Addr: getRedisAddr()})
+
+func getRedisAddr() string {
+	addr := os.Getenv("REDIS_ADDR")
+	if addr == "" {
+		return "172.17.0.2:6379"
+	}
+	return addr
+}
 
 var roomsMu sync.Mutex
 var rooms = make(map[string]*Room)
@@ -348,8 +358,16 @@ func (r *Room) handleAttack(playerId string, monsterId int, unitId int) {
 // ==================================
 func (r *Room) handleSlide(playerId string, board [][]UnitInfo) {
 	key := fmt.Sprintf("game:%s:player:%s:board", r.ID, playerId)
-	data, _ := json.Marshal(board)
-	rdb.Set(ctx, key, data, 0)
+	data, err := json.Marshal(board)
+	if err != nil {
+		log.Println("handleSlide json.Marshal error:", err)
+		return
+	}
+	err = rdb.Set(ctx, key, data, 0).Err()
+	if err != nil {
+		log.Println("handleSlide redis Set error:", err)
+		return
+	}
 	r.notifyAll(map[string]any{"type": "board_update", "playerId": playerId, "board": board})
 }
 
@@ -359,16 +377,31 @@ func (r *Room) handleSlide(playerId string, board [][]UnitInfo) {
 func (r *Room) summonByHTTP(playerId string) (bool, map[string]any) {
 	cost := 50
 	dopKey := fmt.Sprintf("dopamin:%s", playerId)
-	cur, _ := rdb.Get(ctx, dopKey).Int()
+	cur, err := rdb.Get(ctx, dopKey).Int()
+	if err != nil {
+		log.Println("summonByHTTP redis Get error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 	if cur < cost {
 		return false, map[string]any{"error": "not enough dopamin"}
 	}
-	rdb.DecrBy(ctx, dopKey, int64(cost))
+	err = rdb.DecrBy(ctx, dopKey, int64(cost)).Err()
+	if err != nil {
+		log.Println("summonByHTTP redis DecrBy error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 
 	boardKey := fmt.Sprintf("game:%s:player:%s:board", r.ID, playerId)
-	data, _ := rdb.Get(ctx, boardKey).Bytes()
+	data, err := rdb.Get(ctx, boardKey).Bytes()
+	if err != nil {
+		log.Println("summonByHTTP redis Get board error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 	var board [][]UnitInfo
-	json.Unmarshal(data, &board)
+	if err := json.Unmarshal(data, &board); err != nil {
+		log.Println("summonByHTTP json.Unmarshal error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 	placed := false
 	for !placed {
 		x := rand.Intn(6)
@@ -378,23 +411,46 @@ func (r *Room) summonByHTTP(playerId string) (bool, map[string]any) {
 			placed = true
 		}
 	}
-	newData, _ := json.Marshal(board)
-	rdb.Set(ctx, boardKey, newData, 0)
+	newData, err := json.Marshal(board)
+	if err != nil {
+		log.Println("summonByHTTP json.Marshal error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
+	err = rdb.Set(ctx, boardKey, newData, 0).Err()
+	if err != nil {
+		log.Println("summonByHTTP redis Set error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 	r.notifyAll(map[string]any{"type": "summon_success", "playerId": playerId, "board": board})
 	return true, map[string]any{"success": true, "board": board}
 }
 
 func (r *Room) deleteByHTTP(playerId string, x, y int) (bool, map[string]any) {
 	boardKey := fmt.Sprintf("game:%s:player:%s:board", r.ID, playerId)
-	data, _ := rdb.Get(ctx, boardKey).Bytes()
+	data, err := rdb.Get(ctx, boardKey).Bytes()
+	if err != nil {
+		log.Println("deleteByHTTP redis Get error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 	var board [][]UnitInfo
-	json.Unmarshal(data, &board)
+	if err := json.Unmarshal(data, &board); err != nil {
+		log.Println("deleteByHTTP json.Unmarshal error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 	if board[y][x].UnitID == 0 {
 		return false, map[string]any{"error": "empty"}
 	}
 	board[y][x] = UnitInfo{}
-	newData, _ := json.Marshal(board)
-	rdb.Set(ctx, boardKey, newData, 0)
+	newData, err := json.Marshal(board)
+	if err != nil {
+		log.Println("deleteByHTTP json.Marshal error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
+	err = rdb.Set(ctx, boardKey, newData, 0).Err()
+	if err != nil {
+		log.Println("deleteByHTTP redis Set error:", err)
+		return false, map[string]any{"error": "internal error"}
+	}
 	if r.A != nil && playerId == r.A.ID {
 		r.A.mu.Lock()
 		r.A.TimeLeft -= 2
@@ -500,9 +556,20 @@ func initPlayerBoard(roomId, playerId string) {
 		}
 	}
 	key := fmt.Sprintf("game:%s:player:%s:board", roomId, playerId)
-	data, _ := json.Marshal(board)
-	rdb.Set(ctx, key, data, 0)
-	rdb.Set(ctx, fmt.Sprintf("dopamin:%s", playerId), 1000, 0)
+	data, err := json.Marshal(board)
+	if err != nil {
+		log.Println("initPlayerBoard json.Marshal error:", err)
+		return
+	}
+	err = rdb.Set(ctx, key, data, 0).Err()
+	if err != nil {
+		log.Println("initPlayerBoard redis Set error:", err)
+		return
+	}
+	err = rdb.Set(ctx, fmt.Sprintf("dopamin:%s", playerId), 1000, 0).Err()
+	if err != nil {
+		log.Println("initPlayerBoard redis Set dopamin error:", err)
+	}
 }
 
 func healthHandler(c *gin.Context) {
