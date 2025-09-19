@@ -556,6 +556,14 @@ func main() {
 	router.GET("/ws", wsHandler)
 	router.GET("/health", healthHandler)
 
+	router.POST("/admin/flushall", func(c *gin.Context) {
+		if err := rdb.FlushAll(ctx).Err(); err != nil {
+			c.JSON(500, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(200, gin.H{"ok": true, "message": "all redis data flushed"})
+	})
+
 	// 예제 방 및 플레이어 초기화
 	roomId := "room1"
 	initPlayerBoard(roomId, "A")
