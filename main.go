@@ -556,7 +556,7 @@ func main() {
 	router.GET("/ws", wsHandler)
 	router.GET("/health", healthHandler)
 
-	router.POST("/admin/flushall", func(c *gin.Context) {
+	router.GET("/flushall", func(c *gin.Context) {
 		if err := rdb.FlushAll(ctx).Err(); err != nil {
 			c.JSON(500, gin.H{"error": err.Error()})
 			return
