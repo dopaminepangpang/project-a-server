@@ -16,7 +16,7 @@ import (
 )
 
 var ctx = context.Background()
-var rdb = redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+var rdb = redis.NewClient(&redis.Options{Addr: "host.docker.internal:6379"})
 
 var roomsMu sync.Mutex
 var rooms = make(map[string]*Room)
